@@ -7,6 +7,9 @@
 
 Идемпотентность: результат детерминированно пересчитывается из источника
 при каждом синке — повторные запуски не плодят дубли и дают тот же JSON.
+
+Прогрев: пока инстанс запущен, сервис сам периодически дёргает свой /health
+(self-ping), чтобы free-инстанс Render не засыпал от простоя.
 """
 from __future__ import annotations
 
@@ -26,11 +29,11 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger("sync")
 
 SOURCE_URL = os.getenv("SOURCE_URL", "https://test.ooobs.ru/api/orders")
-CACHE_TTL = float(os.getenv("CACHE_TTL", "30"))                 # сек: свежесть кэша ответа
-KEEPALIVE_MINUTES = float(os.getenv("KEEPALIVE_MINUTES", "10"))  # прогрев free-инстанса, 0 = выкл.
+CACHE_TTL = float(os.getenv("CACHE_TTL", "30"))                  # сек: свежесть кэша ответа
+KEEPALIVE_MINUTES = float(os.getenv("KEEPALIVE_MINUTES", "5"))   # self-ping, 0 = выкл.
 HTTP_TIMEOUT = float(os.getenv("HTTP_TIMEOUT", "15"))
 
-_state: dict = {"result": None, "fetched_at": 0.0, "stale": False}
+_state: dict = {"result": None, "fetched_at": 0.0, "stale": False, "last_keepalive": 0.0}
 _lock = asyncio.Lock()
 
 
@@ -158,6 +161,8 @@ async def _keepalive_loop() -> None:
                 await client.get(f"{base}/health")
         except Exception:  # noqa: BLE001
             pass
+        finally:
+            _state["last_keepalive"] = time.time()
 
 
 @asynccontextmanager
@@ -205,9 +210,15 @@ async def force_sync():
 
 @app.get("/health")
 async def health():
+    last = _state["last_keepalive"]
     return {
         "status": "ok",
         "source": SOURCE_URL,
         "synced_ago_sec": round(max(0.0, time.time() - _state["fetched_at"])),
         "has_result": _state["result"] is not None,
+        "keepalive": {
+            "enabled": bool(os.getenv("RENDER_EXTERNAL_URL")) and KEEPALIVE_MINUTES > 0,
+            "interval_min": KEEPALIVE_MINUTES,
+            "last_self_ping_age_sec": round(time.time() - last) if last else None,
+        },
     }

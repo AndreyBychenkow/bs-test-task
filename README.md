@@ -53,6 +53,14 @@ uvicorn app.main:app --reload
 python tests/test_sync.py
 ```
 
+## Прогрев сервиса (free-инстанс Render засыпает после ~15 мин простоя)
+
+- **Self-ping:** пока инстанс запущен, сервис сам каждые 5 минут (`KEEPALIVE_MINUTES`)
+  дёргает свой `/health` — не даёт Render'у посчитать его «простаивающим».
+- **Внешний heartbeat:** workflow `.github/workflows/keepalive.yml` пингует `/health`
+  каждые 5 минут с GitHub Actions — поднимет сервис, даже если он успел уснуть.
+- **Проверка:** блок `keepalive` в `/health` — включён ли прогрев и когда был последний self-ping.
+
 ## Секреты
 
 Источник публичный — секретов в коде нет. Всё настраивается через переменные
