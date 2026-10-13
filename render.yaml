@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: bs-test-task
+    name: orders-sync-service
     runtime: docker
     plan: free
     region: frankfurt
